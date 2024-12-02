@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -34,6 +35,24 @@ fn main() {
         sum += (a - b).abs();
     }
     println!("Sum is :{}", sum);
+
+    let mut locations = HashMap::new();
+    let mut sum: i32 = 0;
+
+    for loc in col1.iter() {
+        locations.entry(loc).or_insert(0);
+    }
+    for loc in col2.iter() {
+        if locations.contains_key(&loc) {
+            let count = locations.get(&loc).unwrap();
+            locations.insert(loc, count + 1);
+        }
+    }
+    for loc in col1.iter() {
+        //println!("sum {} += {} * {}", sum, loc, locations.get(loc).unwrap());
+        sum += loc * locations.get(loc).unwrap();
+    }
+    println!("distance is :{}", sum);
 }
 
 // The output is wrapped in a Result to allow matching on errors.
