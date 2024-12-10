@@ -77,11 +77,17 @@ impl City {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 struct Antenna {
     frequency: char,
     x: i32,
     y: i32,
+}
+
+impl PartialEq for Antenna {
+    fn eq(&self, other: &Self) -> bool {
+        self.x == other.x && self.y == other.y && self.frequency == other.frequency
+    }
 }
 
 impl Antenna {
@@ -107,12 +113,27 @@ fn main() {
 
     let mut sum2: i32 = 0;
 
-    city.print();
     let mut i = city.list_antennas();
     for i in city.list_antennas() {
-        dbg!("{}", i);
+        for j in city.list_antennas() {
+            if i != j {
+                if i.frequency == j.frequency {
+                    let (x,y) = i.distance_from(j.clone());
+                    let mut movex = j.x + x;
+                    let mut movey = j.y + y;
+
+                    while city.is_inside(movex,movey) {
+                        city.antinodes[movex as usize][movey as usize] = '#';
+                        movex += x;
+                        movey += y;
+                    }
+                }
+            }
+        }
     }
 
+    city.print();
+    sum = number_of_x(city.antinodes, '#');
     println!("Sum is :{}", sum);
     println!("Sum2 is :{}", sum2);
 }
