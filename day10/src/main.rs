@@ -1,10 +1,10 @@
-use std::env;
 use std::collections::HashSet;
+use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Map {
     map: Vec<Vec<char>>,
 }
@@ -17,9 +17,7 @@ impl Map {
         self.map[0].len() as i32
     }
     fn new() -> Self {
-        Self {
-            map: Vec::new(),
-        }
+        Self { map: Vec::new() }
     }
     fn add_line(&mut self, line: Vec<char>) {
         self.map.push(line.clone());
@@ -36,39 +34,93 @@ impl Map {
         println!();
     }
 
-    fn is_inside(&self, x: i32, y: i32) -> bool {
-        x >= 0 && y >= 0 && x < self.xlen() && y < self.ylen()
+    fn is_inside(&self, point: &Coordinate) -> bool {
+        point.x >= 0 && point.y >= 0 && point.x < self.xlen() && point.y < self.ylen()
     }
 
+    fn height(&self, point: &Coordinate) -> i32 {
+        //dbg!("{}", self.clone());
+        if self.is_inside(&point) {
+            
+            return self.map[point.x as usize][point.y as usize]
+                .to_string()
+                .parse::<i32>()
+                .unwrap();
+        }
+        return 0;
+    }
+
+    fn find_tops(&self, start: Coordinate, height: i32) -> Vec<Coordinate> {
+        if !self.is_inside(&start) {
+            return vec![];
+        }
+        if self.height(&start) != height {
+            return vec![];
+        }
+        if height == 9 {
+            return vec![start.clone()];
+        }
+        let new_height = height + 1;
+        return [
+            self.find_tops(start.left(), new_height),
+            self.find_tops(start.right(), new_height),
+            self.find_tops(start.up(), new_height),
+            self.find_tops(start.down(), new_height),
+        ]
+        .concat();
+    }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone, Hash)]
 struct Coordinate {
     x: i32,
-    y: i32
+    y: i32,
 }
 impl PartialEq for Coordinate {
     fn eq(&self, other: &Self) -> bool {
         self.x == other.x && self.y == other.y
-    }   
-}   
+    }
+}
 
+impl Eq for Coordinate {}
 
+impl Coordinate {
+    fn right(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x,
+            y: self.y + 1,
+        };
+    }
+    fn left(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x,
+            y: self.y - 1,
+        };
+    }
+    fn down(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x + 1,
+            y: self.y,
+        };
+    }
+    fn up(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x - 1,
+            y: self.y,
+        };
+    }
+}
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 struct Trail {
     head: Coordinate,
     tops: HashSet<Coordinate>,
-    
 }
 
 impl Trail {
     fn new(x: i32, y: i32) -> Self {
         Self {
-            head: Coordinate {
-                x: x,
-                y: y
-            },
+            head: Coordinate { x: x, y: y },
             tops: HashSet::new(),
         }
     }
@@ -90,16 +142,20 @@ fn main() {
     for line in 0..map.xlen() {
         for col in 0..map.ylen() {
             if map.map[line as usize][col as usize] == '0' {
-                let trail = Trail::new(line, col);
+                let mut trail = Trail::new(line, col);
+                for top in map.find_tops(trail.head.clone(), 0) {
+                    trail.tops.insert(top);
+                    sum2+=1;
+                }
                 trails.push(trail);
             }
         }
     }
 
-
     for i in trails {
-        dbg!("{}", i);
-    };
+        //dbg!("{}", i);
+        sum += i.tops.len() as i32;
+    }
 
     println!("Sum is :{}", sum);
     println!("Sum2 is :{}", sum2);
