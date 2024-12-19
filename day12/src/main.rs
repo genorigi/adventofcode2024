@@ -81,6 +81,46 @@ impl Map {
         return nbr;
     }
 
+    fn put_fence(
+        &self,
+        fences: &mut Vec<Fence>,
+        p: Coordinate,
+        crop_type: char,
+        c: fence_direction,
+    ) {
+        if !self.is_inside(&p) {
+            fences.push(Fence {
+                start: p.clone(),
+                end: p.clone(),
+                dir: c,
+            });
+            //println!("p {},{} is out, we put a fence", p.x, p.y);
+        } else if let Some(e) = self.value(&p) {
+            if e != crop_type {
+                //println!("p {},{} is {}, crop_type is {}", p.x, p.y, e, crop_type);
+                fences.push(Fence {
+                    start: p.clone(),
+                    end: p.clone(),
+                    dir: c,
+                });
+            }
+        }
+    }
+
+    fn find_fences(&self, point: &Coordinate) -> Vec<Fence> {
+        let mut fences: Vec<Fence> = Vec::new();
+        let p = point.up();
+        let crop_type = self.value(&point).unwrap();
+        self.put_fence(&mut fences, p, crop_type, fence_direction::down);
+        let p = point.down();
+        self.put_fence(&mut fences, p, crop_type, fence_direction::up);
+        let p = point.left();
+        self.put_fence(&mut fences, p, crop_type, fence_direction::right);
+        let p = point.right();
+        self.put_fence(&mut fences, p, crop_type, fence_direction::left);
+        return fences;
+    }
+
     fn mark_crop(&mut self, parcel: Coordinate, crop_index: i32) {
         let plant = self.value(&parcel).unwrap();
         if self.is_inside(&parcel) {
@@ -91,18 +131,14 @@ impl Map {
             if let Some(crop) = self.crop_list.get_mut(&crop_index) {
                 crop.parcels.push(parcel.clone());
             } else {
-                self.crop_list.insert(
-                    crop_index,
-                    Crop {
-                        parcels: vec![parcel.clone()],
-                    },
-                );
+                self.crop_list
+                    .insert(crop_index, Crop::new(self, vec![parcel.clone()]));
             }
         }
         let mut parcel_list: Vec<Coordinate> = Vec::new();
         parcel_list.push(parcel.left());
-        parcel_list.push(parcel.up());
         parcel_list.push(parcel.right());
+        parcel_list.push(parcel.up());
         parcel_list.push(parcel.down());
         for p in parcel_list {
             if let Some(c) = self.value(&p) {
@@ -173,9 +209,55 @@ impl Coordinate {
     }
 }
 
+#[derive(Debug, Clone, Hash, PartialEq)]
+enum fence_direction {
+    up,
+    down,
+    right,
+    left,
+}
+
+#[derive(Debug, Clone, Hash)]
+struct Fence {
+    start: Coordinate,
+    end: Coordinate,
+    dir: fence_direction,
+}
+
+impl Fence {
+    fn merge(&mut self, fence: &Fence) -> bool {
+        if self.dir != fence.dir {
+            return false;
+        }
+
+        if self.dir == fence_direction::up || self.dir == fence_direction::down {
+            if self.start == fence.end.right() {
+                self.start = fence.start.clone();
+                return true;
+            }
+            if self.end == fence.start.left() {
+                self.end = fence.end.clone();
+                return true;
+            }
+        }
+        if self.dir == fence_direction::right || self.dir == fence_direction::left {
+            if self.start == fence.end.up() {
+                self.start = fence.start.clone();
+                return true;
+            }
+            if self.end == fence.start.down() {
+                self.end = fence.end.clone();
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
 #[derive(Debug, Clone, Hash)]
 struct Crop {
     parcels: Vec<Coordinate>,
+    fences: Vec<Fence>,
 }
 
 impl Crop {
@@ -189,6 +271,49 @@ impl Crop {
             nbr += map.fence_nbr(&parcel);
         }
         return nbr;
+    }
+    fn add_all_fences(&mut self, map: &Map) {
+        let mut new_fences: Vec<Fence> = Vec::new();
+        for parcel in self.clone().parcels.iter() {
+            let fence_list = map.find_fences(&parcel);
+            for f in fence_list {
+                self.add_fence(f.clone());
+            }
+        }
+    }
+
+    fn add_fence(&mut self, fence: Fence) {
+        let mut new_fence = fence.clone();
+        let mut new_fences: Vec<Fence> = Vec::new();
+        for f in self.fences.iter() {
+            if !new_fence.merge(&f) {
+                new_fences.push(f.clone());
+            } else {
+                //println!("merging...");
+            }
+        }
+        new_fences.push(new_fence);
+        self.fences = new_fences;
+    }
+    fn new(map: &Map, parcels: Vec<Coordinate>) -> Self {
+        let mut fences: Vec<Fence> = Vec::new();
+
+        return Crop {
+            parcels: parcels.clone(),
+            fences: fences,
+        };
+    }
+
+    fn print_fences(&self) {
+        for i in self.fences.iter() {
+        }
+    }
+
+    fn fence_sides(&self) -> i32 {
+        // first we go left right
+        let mut nbr = 0;
+        //        for i in 0..self.fences_line.len() {
+        return 0;
     }
 }
 
@@ -206,17 +331,23 @@ fn main() {
         }
     }
 
-    map.print();
+    //map.print();
     map.calculate_crops();
-    map.print_crops();
+    //map.print_crops();
 
+    // for part 2, get bck the list of crops to add fences to it
+    let mut list_crop: Vec<Crop> = Vec::new();
     for (k, i) in &mut map.crop_list.iter() {
         let area = i.area();
-        let fences = i.fence_nbr(&map);
+        let fences = i.clone().fence_nbr(&map);
         sum += area * fences;
-        println!("crop {} is area {} and fence {}", k, area, fences);
+        let mut new_crop = i.clone();
+        new_crop.add_all_fences(&map);
+        //new_crop.print_fences();
+        sum2 += area * new_crop.fences.len() as i32;
+        list_crop.push(new_crop);
+        //println!("crop {} is area {} and fence {}", k, area, fences);
     }
-
     println!("Sum is :{}", sum);
     println!("Sum2 is :{}", sum2);
 }
