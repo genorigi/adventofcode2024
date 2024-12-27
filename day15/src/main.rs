@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::{self, BufRead};
@@ -11,8 +10,40 @@ struct Box {
 }
 
 impl Box {
-    fn is_there(&self, c: &Coordinate) -> bool {
-        return self.start == *c || self.end == *c;
+    fn is_against(&self, c: &Coordinate, dir: &Direction) -> bool {
+        let next_move;
+        match dir {
+            Direction::up => next_move = c.up(),
+            Direction::down => next_move = c.down(),
+            Direction::left => next_move = c.left(),
+            Direction::right => next_move = c.right(),
+        }
+        return self.start == next_move || self.end == next_move;
+    }
+
+    fn up(&self) -> Self {
+        Self {
+            start: self.start.up(),
+            end: self.end.up(),
+        }
+    }
+    fn down(&self) -> Self {
+        Self {
+            start: self.start.down(),
+            end: self.end.down(),
+        }
+    }
+    fn left(&self) -> Self {
+        Self {
+            start: self.start.left(),
+            end: self.end.left(),
+        }
+    }
+    fn right(&self) -> Self {
+        Self {
+            start: self.start.right(),
+            end: self.end.right(),
+        }
     }
 }
 
@@ -20,6 +51,7 @@ impl Box {
 struct Map {
     map: Vec<Vec<char>>,
     boxes: Vec<Box>,
+    robot: Coordinate,
 }
 
 impl Map {
@@ -33,6 +65,7 @@ impl Map {
         Self {
             map: Vec::new(),
             boxes: Vec::new(),
+            robot: Coordinate { x: 0, y: 0 },
         }
     }
     fn add_line(&mut self, line: Vec<char>) {
@@ -43,13 +76,16 @@ impl Map {
         for i in 0..self.ylen() {
             for j in 0..self.xlen() {
                 let mut c: char = self.map[i as usize][j as usize];
+                let location = Coordinate::new(j, i);
                 for b in self.boxes.iter() {
-                    let location = Coordinate::new(j, i);
                     if b.start == location {
                         c = '[';
                     } else if b.end == location {
-                        c= ']';
+                        c = ']';
                     };
+                }
+                if self.robot == location {
+                    c = '@';
                 }
                 print!("{}", c);
             }
@@ -58,17 +94,24 @@ impl Map {
         println!();
     }
 
-    fn store_boxes(&mut self) {
+    fn store_boxes_and_robot(&mut self) {
         for i in 0..self.ylen() {
             for j in 0..self.xlen() {
                 let c: char = self.map[i as usize][j as usize];
                 if c == '[' {
                     let b_start = Coordinate::new(j, i);
                     let b_end = b_start.right();
-                    self.boxes.push(Box {start: b_start, end: b_end});
+                    self.boxes.push(Box {
+                        start: b_start,
+                        end: b_end,
+                    });
                     self.map[i as usize][j as usize] = '.';
                 }
                 if c == ']' {
+                    self.map[i as usize][j as usize] = '.';
+                }
+                if c == '@' {
+                    self.robot = Coordinate::new(j, i);
                     self.map[i as usize][j as usize] = '.';
                 }
             }
@@ -76,36 +119,42 @@ impl Map {
     }
 
     fn is_blocked(&self, case: &Coordinate, dir: &Direction, c: char) -> bool {
-        print!(
-            "is_blocked c:{}, xlen: {}, ylen: {}",
-            c,
-            self.xlen(),
-            self.ylen()
-        );
-        dir.print();
-        println!();
-        dbg!("{}", &case.left());
         match dir {
             Direction::up => return self.value(&case.up()).unwrap() == c,
             Direction::down => return self.value(&case.down()).unwrap() == c,
             Direction::left => return self.value(&case.left()).unwrap() == c,
             Direction::right => return self.value(&case.right()).unwrap() == c,
         }
-        return true;
     }
     fn is_inside(&self, point: &Coordinate) -> bool {
         point.x >= 0 && point.y >= 0 && point.x < self.xlen() && point.y < self.ylen()
     }
-/*
-    fn move_box(&mut self, case: &Coordinate, dir: &Direction) -> bool {
-        match dir {
-            Direction::up => result_move = self.move_case(&case.up(), &dir),
-            Direction::down => result_move = self.move_case(&case.down(), &dir),
-            Direction::left => result_move = self.move_case(&case.left(), &dir),
-            Direction::right => result_move = self.move_case(&case.right(), &dir),
+
+    fn move_box(&mut self, b: usize, dir: &Direction) -> Option<Vec<usize>> {
+        let mut box_can_move = Vec::new();
+        if self.is_blocked(&self.boxes[b].start, dir, '#')
+            || self.is_blocked(&self.boxes[b].end, dir, '#')
+        {
+            return None;
         }
+        for bx in 0..self.boxes.len() {
+            if bx == b {
+                continue;
+            }
+            if self.boxes[bx].is_against(&self.boxes[b].start, dir)
+                || self.boxes[bx].is_against(&self.boxes[b].end, dir)
+            {
+                if let Some(x) = self.move_box(bx,dir) {
+                    box_can_move.extend(x);
+                } else {
+                    return None
+                }
+            }
+        }
+
+        box_can_move.push(b);
+        return Some(box_can_move);
     }
-*/
 
     fn move_case(&mut self, case: &Coordinate, dir: &Direction) -> bool {
         if self.is_blocked(&case, &dir, '#') {
@@ -144,6 +193,35 @@ impl Map {
         return robot.clone();
     }
 
+    fn move_self_robot(&mut self, dir: &Direction) {
+        for b in 0..self.boxes.len() {
+            if self.boxes[b].is_against(&self.robot, dir) {
+                if let Some(list) = self.move_box(b, dir) {
+                    for b in list {
+                        match dir {
+                            Direction::up => self.boxes[b] = self.boxes[b].up(),
+                            Direction::down => self.boxes[b] = self.boxes[b].down(),
+                            Direction::left => self.boxes[b] = self.boxes[b].left(),
+                            Direction::right => self.boxes[b] = self.boxes[b].right(),
+                        }
+                    }
+                } else {
+                    return;
+                }
+                break;
+            }
+        }
+
+        if !self.is_blocked(&self.robot, dir, '#') {
+            match dir {
+                Direction::up => self.robot = self.robot.up(),
+                Direction::down => self.robot = self.robot.down(),
+                Direction::left => self.robot = self.robot.left(),
+                Direction::right => self.robot = self.robot.right(),
+            }
+        }
+    }
+
     fn swap(&mut self, case: &Coordinate, new_case: &Coordinate) {
         let c: char = self.value(&case).unwrap();
         self.map[case.y as usize][case.x as usize] = self.value(&new_case).unwrap();
@@ -166,6 +244,14 @@ impl Map {
                     result += i;
                 }
             }
+        }
+        return result;
+    }
+    fn calculate_boxes_score(&self) ->i32 {
+        let mut result: i32 = 0;
+        for b in self.boxes.iter() {
+            result += b.start.y * 100;
+            result += b.start.x;
         }
         return result;
     }
@@ -304,53 +390,22 @@ fn main() {
     let mut map2 = map.calculate_new_map();
 
     for dir in directions.clone() {
-        dir.print();
-        println!();
         robot = map.move_robot(robot, &dir);
-        map.print();
-        pause();
     }
 
     sum = map.calculate_score();
 
     // part2
-    // store boxes 
-    map2.store_boxes();
-    let mut robot2 = Coordinate::new(0, 0);
-    for i in 0..map2.ylen() {
-        for j in 0..map2.xlen() {
-            let ici = Coordinate { x: j, y: i };
-            if map2.value(&ici).unwrap() == '@' {
-                robot2 = Coordinate { x: j, y: i };
-            }
-        }
-    }
+    // store boxes
+    map2.store_boxes_and_robot();
 
-    map2.print();
-    dbg!("{}", robot2.clone());
-    pause();
     for dir in directions {
-        dir.print();
-        println!();
-        robot2 = map2.move_robot(robot2, &dir);
-        map2.print();
-        pause();
+        map2.move_self_robot(&dir);
     }
+    map2.print();
+    sum2 = map2.calculate_boxes_score();
     println!("Sum is :{}", sum);
     println!("Sum2 is :{}", sum2);
-}
-
-//number of X
-fn number_of_x(matrix: Vec<Vec<char>>, x: char) -> i32 {
-    let mut sum: i32 = 0;
-    for line in matrix.iter() {
-        for col in line.iter() {
-            if *col == x {
-                sum += 1
-            }
-        }
-    }
-    return sum;
 }
 
 // The output is wrapped in a Result to allow matching on errors.
