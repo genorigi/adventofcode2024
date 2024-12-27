@@ -5,20 +5,34 @@ use std::io::{self, BufRead};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
+struct Box {
+    start: Coordinate,
+    end: Coordinate,
+}
+
+impl Box {
+    fn is_there(&self, c: &Coordinate) -> bool {
+        return self.start == *c || self.end == *c;
+    }
+}
+
+#[derive(Debug, Clone)]
 struct Map {
     map: Vec<Vec<char>>,
+    boxes: Vec<Box>,
 }
 
 impl Map {
-    fn xlen(&self) -> i32 {
+    fn ylen(&self) -> i32 {
         self.map.len() as i32
     }
-    fn ylen(&self) -> i32 {
+    fn xlen(&self) -> i32 {
         self.map[0].len() as i32
     }
     fn new() -> Self {
         Self {
             map: Vec::new(),
+            boxes: Vec::new(),
         }
     }
     fn add_line(&mut self, line: Vec<char>) {
@@ -26,9 +40,17 @@ impl Map {
     }
 
     fn print(&self) {
-        for i in 0..self.xlen() {
-            for j in 0..self.ylen() {
-                let c: char = self.map[i as usize][j as usize];
+        for i in 0..self.ylen() {
+            for j in 0..self.xlen() {
+                let mut c: char = self.map[i as usize][j as usize];
+                for b in self.boxes.iter() {
+                    let location = Coordinate::new(j, i);
+                    if b.start == location {
+                        c = '[';
+                    } else if b.end == location {
+                        c= ']';
+                    };
+                }
                 print!("{}", c);
             }
             println!();
@@ -36,19 +58,160 @@ impl Map {
         println!();
     }
 
+    fn store_boxes(&mut self) {
+        for i in 0..self.ylen() {
+            for j in 0..self.xlen() {
+                let c: char = self.map[i as usize][j as usize];
+                if c == '[' {
+                    let b_start = Coordinate::new(j, i);
+                    let b_end = b_start.right();
+                    self.boxes.push(Box {start: b_start, end: b_end});
+                    self.map[i as usize][j as usize] = '.';
+                }
+                if c == ']' {
+                    self.map[i as usize][j as usize] = '.';
+                }
+            }
+        }
+    }
+
+    fn is_blocked(&self, case: &Coordinate, dir: &Direction, c: char) -> bool {
+        print!(
+            "is_blocked c:{}, xlen: {}, ylen: {}",
+            c,
+            self.xlen(),
+            self.ylen()
+        );
+        dir.print();
+        println!();
+        dbg!("{}", &case.left());
+        match dir {
+            Direction::up => return self.value(&case.up()).unwrap() == c,
+            Direction::down => return self.value(&case.down()).unwrap() == c,
+            Direction::left => return self.value(&case.left()).unwrap() == c,
+            Direction::right => return self.value(&case.right()).unwrap() == c,
+        }
+        return true;
+    }
     fn is_inside(&self, point: &Coordinate) -> bool {
         point.x >= 0 && point.y >= 0 && point.x < self.xlen() && point.y < self.ylen()
+    }
+/*
+    fn move_box(&mut self, case: &Coordinate, dir: &Direction) -> bool {
+        match dir {
+            Direction::up => result_move = self.move_case(&case.up(), &dir),
+            Direction::down => result_move = self.move_case(&case.down(), &dir),
+            Direction::left => result_move = self.move_case(&case.left(), &dir),
+            Direction::right => result_move = self.move_case(&case.right(), &dir),
+        }
+    }
+*/
+
+    fn move_case(&mut self, case: &Coordinate, dir: &Direction) -> bool {
+        if self.is_blocked(&case, &dir, '#') {
+            return false;
+        }
+        if self.is_blocked(&case, &dir, 'O') {
+            let mut result_move = false;
+            match dir {
+                Direction::up => result_move = self.move_case(&case.up(), &dir),
+                Direction::down => result_move = self.move_case(&case.down(), &dir),
+                Direction::left => result_move = self.move_case(&case.left(), &dir),
+                Direction::right => result_move = self.move_case(&case.right(), &dir),
+            }
+            if !result_move {
+                return false;
+            }
+        }
+        match dir {
+            Direction::up => self.swap(&case, &case.up()),
+            Direction::down => self.swap(&case, &case.down()),
+            Direction::left => self.swap(&case, &case.left()),
+            Direction::right => self.swap(&case, &case.right()),
+        }
+        return true;
+    }
+
+    fn move_robot(&mut self, robot: Coordinate, dir: &Direction) -> Coordinate {
+        if self.move_case(&robot, &dir) {
+            match dir {
+                Direction::up => return robot.up(),
+                Direction::down => return robot.down(),
+                Direction::left => return robot.left(),
+                Direction::right => return robot.right(),
+            }
+        }
+        return robot.clone();
+    }
+
+    fn swap(&mut self, case: &Coordinate, new_case: &Coordinate) {
+        let c: char = self.value(&case).unwrap();
+        self.map[case.y as usize][case.x as usize] = self.value(&new_case).unwrap();
+        self.map[new_case.y as usize][new_case.x as usize] = c;
     }
 
     fn value(&self, point: &Coordinate) -> Option<char> {
         if !self.is_inside(&point) {
             return None;
         }
-        return Some(self.map[point.x as usize][point.y as usize]);
+        return Some(self.map[point.y as usize][point.x as usize]);
     }
 
+    fn calculate_score(&self) -> i32 {
+        let mut result: i32 = 0;
+        for i in 0..self.ylen() {
+            for j in 0..self.xlen() {
+                if self.map[j as usize][i as usize] == 'O' {
+                    result += j * 100;
+                    result += i;
+                }
+            }
+        }
+        return result;
+    }
+    fn calculate_new_map(&self) -> Self {
+        let mut result: Map = Map::new();
+        for i in 0..self.ylen() {
+            let mut line: Vec<char> = Vec::new();
+            for j in 0..self.xlen() {
+                if self.map[i as usize][j as usize] == '.' {
+                    line.push('.');
+                    line.push('.');
+                } else if self.map[i as usize][j as usize] == 'O' {
+                    line.push('[');
+                    line.push(']');
+                } else if self.map[i as usize][j as usize] == '@' {
+                    line.push('@');
+                    line.push('.');
+                } else if self.map[i as usize][j as usize] == '#' {
+                    line.push('#');
+                    line.push('#');
+                }
+            }
+            result.map.push(line);
+        }
+        return result;
+    }
 }
 
+#[derive(Debug, Clone, Hash)]
+enum Direction {
+    up,
+    down,
+    left,
+    right,
+}
+
+impl Direction {
+    fn print(&self) {
+        match self {
+            Direction::up => print!("{}", "^"),
+            Direction::down => print!("{}", "v"),
+            Direction::left => print!("{}", "<"),
+            Direction::right => print!("{}", ">"),
+        }
+    }
+}
 #[derive(Debug, Clone, Hash)]
 struct Coordinate {
     x: i32,
@@ -68,26 +231,26 @@ impl Coordinate {
     }
     fn right(&self) -> Coordinate {
         return Coordinate {
-            x: self.x,
-            y: self.y + 1,
-        };
-    }
-    fn left(&self) -> Coordinate {
-        return Coordinate {
-            x: self.x,
-            y: self.y - 1,
-        };
-    }
-    fn down(&self) -> Coordinate {
-        return Coordinate {
             x: self.x + 1,
             y: self.y,
         };
     }
-    fn up(&self) -> Coordinate {
+    fn left(&self) -> Coordinate {
         return Coordinate {
             x: self.x - 1,
             y: self.y,
+        };
+    }
+    fn down(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x,
+            y: self.y + 1,
+        };
+    }
+    fn up(&self) -> Coordinate {
+        return Coordinate {
+            x: self.x,
+            y: self.y - 1,
         };
     }
     fn neighbours(&self) -> Vec<Coordinate> {
@@ -95,15 +258,25 @@ impl Coordinate {
     }
 }
 
+fn transform(c: char) -> Direction {
+    match c {
+        '>' => return Direction::right,
+        '^' => return Direction::up,
+        '<' => return Direction::left,
+        'v' => return Direction::down,
+        _ => return Direction::right,
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let filename = &args[1];
     let mut map: Map = Map::new();
-    let mut direction: Vec<char>= Vec::new();
+    let mut directions: Vec<Direction> = Vec::new();
     let mut direction_turn = false;
     let mut sum: i32 = 0;
     let mut sum2: i32 = 0;
-    let mut robot: Coordinate = Coordinate::new(0,0);
+    let mut robot: Coordinate = Coordinate::new(0, 0);
     // parse using filename
     if let Ok(lines) = read_lines(filename) {
         // Consumes the iterator, returns an (Optional) String
@@ -115,22 +288,54 @@ fn main() {
                     map.add_line(line.chars().collect());
                 }
             } else {
-                direction.extend::<Vec<char>>(line.chars().collect());
+                directions.extend::<Vec<Direction>>(line.chars().map(|x| transform(x)).collect());
             }
         }
     }
     for i in 0..map.ylen() {
         for j in 0..map.xlen() {
-            let ici = Coordinate{x: i, y: j };
+            let ici = Coordinate { x: j, y: i };
             if map.value(&ici).unwrap() == '@' {
-                robot = Coordinate{ x: i, y: j};
+                robot = Coordinate { x: j, y: i };
             }
         }
     }
 
-    map.print();
-    dbg!("robot: {}",robot);
+    let mut map2 = map.calculate_new_map();
 
+    for dir in directions.clone() {
+        dir.print();
+        println!();
+        robot = map.move_robot(robot, &dir);
+        map.print();
+        pause();
+    }
+
+    sum = map.calculate_score();
+
+    // part2
+    // store boxes 
+    map2.store_boxes();
+    let mut robot2 = Coordinate::new(0, 0);
+    for i in 0..map2.ylen() {
+        for j in 0..map2.xlen() {
+            let ici = Coordinate { x: j, y: i };
+            if map2.value(&ici).unwrap() == '@' {
+                robot2 = Coordinate { x: j, y: i };
+            }
+        }
+    }
+
+    map2.print();
+    dbg!("{}", robot2.clone());
+    pause();
+    for dir in directions {
+        dir.print();
+        println!();
+        robot2 = map2.move_robot(robot2, &dir);
+        map2.print();
+        pause();
+    }
     println!("Sum is :{}", sum);
     println!("Sum2 is :{}", sum2);
 }
